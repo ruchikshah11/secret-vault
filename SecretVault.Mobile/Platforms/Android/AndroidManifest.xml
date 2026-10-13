@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+	<!-- allowBackup=false keeps the vault and fingerprint data out of cloud backups. -->
+	<application android:allowBackup="false" android:fullBackupContent="false" android:icon="@mipmap/appicon" android:roundIcon="@mipmap/appicon_round" android:supportsRtl="true" android:label="SecretVault"></application>
+	<uses-permission android:name="android.permission.USE_BIOMETRIC" />
+	<!-- Only for BreachWatch (sends the first 5 characters of a password's SHA-1 hash to Have I Been Pwned).
+	     Sync goes through Android's file picker / the Drive or OneDrive app, not through this app's network access. -->
+	<uses-permission android:name="android.permission.INTERNET" />
+	<!-- Lets "Open website" find the browser on Android 11+. -->
+	<queries>
+		<intent>
+			<action android:name="android.intent.action.VIEW" />
+			<data android:scheme="https" />
+		</intent>
+	</queries>
+</manifest>

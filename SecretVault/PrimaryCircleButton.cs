@@ -1,10 +1,11 @@
 namespace SecretVault.Gui;
 
-public class GoldCircleButton : Control
+// Round "+" button used for Create New when the sidebar is collapsed.
+public class PrimaryCircleButton : Control
 {
     private bool _hovered;
 
-    public GoldCircleButton(int size = 40)
+    public PrimaryCircleButton(int size = 40)
     {
         Size = new Size(size, size);
         Tag = AppTheme.NoTheme;
@@ -20,13 +21,15 @@ public class GoldCircleButton : Control
     {
         var g = e.Graphics;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        g.Clear(Parent?.BackColor ?? AppTheme.Sidebar);
+        var back = Parent?.BackColor ?? AppTheme.Sidebar;
+        g.Clear(back);
 
-        using var brush = new SolidBrush(_hovered ? AppTheme.GoldHover : AppTheme.Gold);
-        g.FillEllipse(brush, 0, 0, Width - 1, Height - 1);
+        using var path = new System.Drawing.Drawing2D.GraphicsPath();
+        path.AddEllipse(0, 0, Width - 1, Height - 1);
+        AppTheme.FillPrimary(g, path, new RectangleF(0, 0, Width, Height), _hovered, true, back);
 
         var inset = (int)(Width * 0.3f);
         var bounds = new Rectangle(inset, inset, Width - inset * 2, Height - inset * 2);
-        Icons.Draw(g, IconKind.Plus, bounds, Color.Black, 2.2f);
+        Icons.Draw(g, IconKind.Plus, bounds, AppTheme.OnPrimary, 2.2f);
     }
 }

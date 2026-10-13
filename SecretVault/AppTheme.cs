@@ -17,6 +17,9 @@ public class ThemePalette
     public Color Accent = Color.Black;
     public Color Gold = Color.Black;
     public Color GoldHover = Color.Black;
+    // Primary action colour: a left-to-right gradient Primary -> PrimaryEnd with white text.
+    public Color Primary = Color.Black;
+    public Color PrimaryEnd = Color.Black;
     public Color Danger = Color.Black;
     public Color Selection = Color.Black;
     public Color Hover = Color.Black;
@@ -48,6 +51,8 @@ public static class AppTheme
         Accent = Color.FromArgb(66, 148, 255),
         Gold = Color.FromArgb(245, 166, 35),
         GoldHover = Color.FromArgb(255, 185, 70),
+        Primary = Color.FromArgb(59, 130, 246),
+        PrimaryEnd = Color.FromArgb(99, 102, 241),
         Danger = Color.FromArgb(235, 90, 90),
         Selection = Color.FromArgb(40, 55, 80),
         Hover = Color.FromArgb(36, 39, 47),
@@ -71,6 +76,8 @@ public static class AppTheme
         Accent = Color.FromArgb(30, 110, 230),
         Gold = Color.FromArgb(235, 155, 25),
         GoldHover = Color.FromArgb(250, 175, 50),
+        Primary = Color.FromArgb(37, 99, 235),
+        PrimaryEnd = Color.FromArgb(79, 70, 229),
         Danger = Color.FromArgb(200, 55, 55),
         Selection = Color.FromArgb(224, 235, 252),
         Hover = Color.FromArgb(240, 241, 244),
@@ -90,8 +97,8 @@ public static class AppTheme
     public static readonly Color RailTextActive = Color.White;
     public static readonly Color RailTextInactive = Color.FromArgb(163, 186, 219);
 
-    public static ThemeMode Mode { get; private set; } = ThemeMode.Dark;
-    public static ThemePalette Current { get; private set; } = Dark;
+    public static ThemeMode Mode { get; private set; } = ThemeMode.Light;
+    public static ThemePalette Current { get; private set; } = Light;
 
     public static event Action? ThemeChanged;
 
@@ -99,7 +106,8 @@ public static class AppTheme
     {
         Mode = mode;
         Current = mode == ThemeMode.Dark ? Dark : Light;
-        ThemeSettings.Save(mode);
+        AppSettings.Current.ThemeMode = mode;
+        AppSettings.Current.Save();
         ThemeChanged?.Invoke();
     }
 
@@ -117,9 +125,27 @@ public static class AppTheme
     public static Color Accent => Current.Accent;
     public static Color Gold => Current.Gold;
     public static Color GoldHover => Current.GoldHover;
+    public static Color Primary => Current.Primary;
+    public static Color PrimaryEnd => Current.PrimaryEnd;
+    public static readonly Color OnPrimary = Color.White;
+    public static readonly Color RailMarker = Color.FromArgb(147, 197, 253);
+
+    // Fills a shape with the primary gradient (lightened on hover, faded when disabled).
+    public static void FillPrimary(Graphics g, System.Drawing.Drawing2D.GraphicsPath path, RectangleF bounds, bool hovered, bool enabled, Color background)
+    {
+        var start = Current.Primary;
+        var end = Current.PrimaryEnd;
+        if (hovered) { start = Gui.UiKit.Blend(Color.White, start, 0.12f); end = Gui.UiKit.Blend(Color.White, end, 0.12f); }
+        if (!enabled) { start = Gui.UiKit.Blend(start, background, 0.45f); end = Gui.UiKit.Blend(end, background, 0.45f); }
+        using var brush = new System.Drawing.Drawing2D.LinearGradientBrush(bounds, start, end, System.Drawing.Drawing2D.LinearGradientMode.Horizontal);
+        g.FillPath(brush, path);
+    }
     public static Color Danger => Current.Danger;
     public static Color Selection => Current.Selection;
     public static Color Hover => Current.Hover;
+
+    // Page background behind rounded cards: a soft grey in light mode so white cards stand out.
+    public static Color Canvas => Mode == ThemeMode.Dark ? Current.Shell : Color.FromArgb(240, 245, 252);
 
     public static void Apply(Control root)
     {

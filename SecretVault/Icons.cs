@@ -2,7 +2,7 @@ using System.Drawing.Drawing2D;
 
 namespace SecretVault.Gui;
 
-public enum IconKind { Hamburger, Plus, Gear, ChevronDown, ChevronRight, Eye, EyeOff, Copy, Trash, Edit, Duplicate, Close, DragHandle, Search, Folder, Key, Shield, Dice, Person, Card, Back }
+public enum IconKind { Hamburger, Plus, Gear, ChevronDown, ChevronRight, Eye, EyeOff, Copy, Trash, Edit, Duplicate, Close, DragHandle, Search, Folder, Key, Shield, Dice, Person, Card, Back, Lock, Star, StarFilled, Globe, External, Download, Upload, History, Tag, Fingerprint, Server, Database, Apps, Certificate, Note }
 
 public static class Icons
 {
@@ -30,7 +30,7 @@ public static class Icons
                 break;
 
             case IconKind.Gear:
-                DrawGear(g, r, color);
+                DrawGear(g, r, color, cutout);
                 break;
 
             case IconKind.ChevronDown:
@@ -187,6 +187,207 @@ public static class Icons
                 break;
             }
 
+            case IconKind.Lock:
+            {
+                var bodyRect = new RectangleF(r.Left + r.Width * 0.1f, r.Top + r.Height * 0.44f, r.Width * 0.8f, r.Height * 0.56f);
+                using var lockBody = RoundedRectPath(Rectangle.Round(bodyRect), Math.Max(2, (int)(r.Width * 0.12f)));
+                g.DrawPath(pen, lockBody);
+                g.DrawArc(pen, r.Left + r.Width * 0.24f, r.Top, r.Width * 0.52f, r.Height * 0.62f, 180, 180);
+                g.DrawLine(pen, r.Left + r.Width * 0.24f, r.Top + r.Height * 0.31f, r.Left + r.Width * 0.24f, bodyRect.Top);
+                g.DrawLine(pen, r.Right - r.Width * 0.24f, r.Top + r.Height * 0.31f, r.Right - r.Width * 0.24f, bodyRect.Top);
+                var kh = Math.Max(1.5f, r.Width * 0.09f);
+                g.FillEllipse(brush, r.Left + r.Width / 2f - kh, bodyRect.Top + bodyRect.Height * 0.42f - kh, kh * 2, kh * 2);
+                break;
+            }
+
+            case IconKind.Star:
+            case IconKind.StarFilled:
+            {
+                var cx = r.Left + r.Width / 2f;
+                var cy = r.Top + r.Height * 0.54f;
+                var outer = r.Width / 2f;
+                var inner = outer * 0.45f;
+                var pts = new PointF[10];
+                for (var i = 0; i < 10; i++)
+                {
+                    var rad = i % 2 == 0 ? outer : inner;
+                    var a = -Math.PI / 2 + i * Math.PI / 5;
+                    pts[i] = new PointF(cx + (float)(Math.Cos(a) * rad), cy + (float)(Math.Sin(a) * rad));
+                }
+                if (kind == IconKind.StarFilled) g.FillPolygon(brush, pts);
+                else g.DrawPolygon(pen, pts);
+                break;
+            }
+
+            case IconKind.Globe:
+                g.DrawEllipse(pen, r);
+                g.DrawEllipse(pen, r.Left + r.Width * 0.28f, r.Top, r.Width * 0.44f, r.Height);
+                g.DrawLine(pen, r.Left, r.Top + r.Height / 2f, r.Right, r.Top + r.Height / 2f);
+                break;
+
+            case IconKind.External:
+            {
+                var boxR = new Rectangle(r.Left, r.Top + r.Height / 4, r.Width * 3 / 4, r.Height * 3 / 4);
+                g.DrawLine(pen, boxR.Left + boxR.Width / 2, boxR.Top, boxR.Left, boxR.Top);
+                g.DrawLine(pen, boxR.Left, boxR.Top, boxR.Left, boxR.Bottom);
+                g.DrawLine(pen, boxR.Left, boxR.Bottom, boxR.Right, boxR.Bottom);
+                g.DrawLine(pen, boxR.Right, boxR.Bottom, boxR.Right, boxR.Bottom - boxR.Height / 2);
+                g.DrawLine(pen, r.Left + r.Width * 0.45f, r.Top + r.Height * 0.55f, r.Right, r.Top);
+                g.DrawLine(pen, r.Right - r.Width * 0.38f, r.Top, r.Right, r.Top);
+                g.DrawLine(pen, r.Right, r.Top, r.Right, r.Top + r.Height * 0.38f);
+                break;
+            }
+
+            case IconKind.Download:
+            case IconKind.Upload:
+            {
+                var cx = r.Left + r.Width / 2f;
+                var arrowTop = (float)r.Top;
+                var arrowBottom = r.Top + r.Height * 0.66f;
+                g.DrawLine(pen, cx, arrowTop, cx, arrowBottom);
+                if (kind == IconKind.Download)
+                {
+                    g.DrawLine(pen, cx - r.Width * 0.25f, arrowBottom - r.Height * 0.25f, cx, arrowBottom);
+                    g.DrawLine(pen, cx + r.Width * 0.25f, arrowBottom - r.Height * 0.25f, cx, arrowBottom);
+                }
+                else
+                {
+                    g.DrawLine(pen, cx - r.Width * 0.25f, arrowTop + r.Height * 0.25f, cx, arrowTop);
+                    g.DrawLine(pen, cx + r.Width * 0.25f, arrowTop + r.Height * 0.25f, cx, arrowTop);
+                }
+                g.DrawLine(pen, r.Left, r.Bottom - r.Height * 0.18f, r.Left, r.Bottom);
+                g.DrawLine(pen, r.Left, r.Bottom, r.Right, r.Bottom);
+                g.DrawLine(pen, r.Right, r.Bottom, r.Right, r.Bottom - r.Height * 0.18f);
+                break;
+            }
+
+            case IconKind.History:
+            {
+                g.DrawArc(pen, r, 200, 300);
+                var cx = r.Left + r.Width / 2f;
+                var cy = r.Top + r.Height / 2f;
+                g.DrawLine(pen, cx, cy, cx, r.Top + r.Height * 0.22f);
+                g.DrawLine(pen, cx, cy, cx + r.Width * 0.22f, cy + r.Height * 0.12f);
+                g.DrawLine(pen, r.Left - 1, r.Top + r.Height * 0.2f, r.Left + r.Width * 0.05f, r.Top + r.Height * 0.42f);
+                g.DrawLine(pen, r.Left + r.Width * 0.05f, r.Top + r.Height * 0.42f, r.Left + r.Width * 0.27f, r.Top + r.Height * 0.36f);
+                break;
+            }
+
+            case IconKind.Tag:
+            {
+                using var tagPath = new GraphicsPath();
+                tagPath.AddPolygon(new[]
+                {
+                    new PointF(r.Left, r.Top), new PointF(r.Left + r.Width * 0.5f, r.Top),
+                    new PointF(r.Right, r.Top + r.Height * 0.5f), new PointF(r.Left + r.Width * 0.5f, r.Bottom),
+                    new PointF(r.Left, r.Top + r.Height * 0.5f)
+                });
+                g.DrawPath(pen, tagPath);
+                var h = Math.Max(1.5f, r.Width * 0.09f);
+                g.FillEllipse(brush, r.Left + r.Width * 0.25f - h, r.Top + r.Height * 0.25f - h, h * 2, h * 2);
+                break;
+            }
+
+            case IconKind.Fingerprint:
+            {
+                // Nested ridges open at the bottom, drawn with a thin pen so they stay distinct at small sizes.
+                using var ridge = new Pen(color, Math.Max(1f, r.Width / 11f)) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+                var cx = r.Left + r.Width / 2f;
+                var cy = r.Top + r.Height * 0.5f;
+                for (var i = 0; i < 3; i++)
+                {
+                    var rx = r.Width * (0.16f + 0.17f * i);
+                    var ry = r.Height * (0.2f + 0.15f * i);
+                    g.DrawArc(ridge, cx - rx, cy - ry, rx * 2, ry * 2 + r.Height * 0.25f, 180, 180);
+                    g.DrawLine(ridge, cx - rx, cy + r.Height * 0.125f, cx - rx, cy + r.Height * (0.2f + 0.08f * i));
+                    g.DrawLine(ridge, cx + rx, cy + r.Height * 0.125f, cx + rx, cy + r.Height * (0.32f - 0.05f * i));
+                }
+                g.DrawLine(ridge, cx, cy - r.Height * 0.05f, cx, cy + r.Height * 0.4f);
+                break;
+            }
+
+            case IconKind.Server:
+            {
+                // Two stacked rack units, each with a status light.
+                var unitH = r.Height * 0.42f;
+                for (var i = 0; i < 2; i++)
+                {
+                    var unit = new RectangleF(r.Left, r.Top + i * (unitH + r.Height * 0.16f), r.Width, unitH);
+                    using var unitPath = RoundedRectPath(Rectangle.Round(unit), Math.Max(1, (int)(unitH * 0.25f)));
+                    g.DrawPath(pen, unitPath);
+                    var dot = Math.Max(1.5f, r.Width * 0.09f);
+                    g.FillEllipse(brush, unit.Right - r.Width * 0.22f - dot, unit.Top + unitH / 2 - dot, dot * 2, dot * 2);
+                    g.DrawLine(pen, unit.Left + r.Width * 0.18f, unit.Top + unitH / 2, unit.Left + r.Width * 0.45f, unit.Top + unitH / 2);
+                }
+                break;
+            }
+
+            case IconKind.Database:
+            {
+                // Cylinder: top ellipse, sides, one middle band, bottom arc.
+                var ellH = r.Height * 0.28f;
+                g.DrawEllipse(pen, r.Left, r.Top, r.Width, ellH);
+                g.DrawLine(pen, r.Left, r.Top + ellH / 2, r.Left, r.Bottom - ellH / 2);
+                g.DrawLine(pen, r.Right, r.Top + ellH / 2, r.Right, r.Bottom - ellH / 2);
+                g.DrawArc(pen, r.Left, r.Top + (r.Height - ellH) / 2, r.Width, ellH, 0, 180);
+                g.DrawArc(pen, r.Left, r.Bottom - ellH, r.Width, ellH, 0, 180);
+                break;
+            }
+
+            case IconKind.Apps:
+            {
+                // 2x2 grid of rounded tiles.
+                var gap = r.Width * 0.16f;
+                var tile = (r.Width - gap) / 2f;
+                for (var row = 0; row < 2; row++)
+                for (var col = 0; col < 2; col++)
+                {
+                    var cell = new RectangleF(r.Left + col * (tile + gap), r.Top + row * (tile + gap), tile, tile);
+                    using var cellPath = RoundedRectPath(Rectangle.Round(cell), Math.Max(1, (int)(tile * 0.3f)));
+                    g.DrawPath(pen, cellPath);
+                }
+                break;
+            }
+
+            case IconKind.Certificate:
+            {
+                // Rosette with two ribbon tails.
+                var d = r.Width * 0.62f;
+                var cx = r.Left + r.Width / 2f;
+                var rosette = new RectangleF(cx - d / 2, r.Top, d, d);
+                g.DrawEllipse(pen, rosette);
+                var inner = d * 0.42f;
+                g.FillEllipse(brush, cx - inner / 2, r.Top + (d - inner) / 2, inner, inner);
+                var tailTop = r.Top + d * 0.82f;
+                g.DrawLine(pen, cx - d * 0.22f, tailTop, cx - d * 0.36f, r.Bottom);
+                g.DrawLine(pen, cx - d * 0.36f, r.Bottom, cx - d * 0.12f, r.Bottom - r.Height * 0.12f);
+                g.DrawLine(pen, cx + d * 0.22f, tailTop, cx + d * 0.36f, r.Bottom);
+                g.DrawLine(pen, cx + d * 0.36f, r.Bottom, cx + d * 0.12f, r.Bottom - r.Height * 0.12f);
+                break;
+            }
+
+            case IconKind.Note:
+            {
+                // Page with a folded corner and text lines.
+                var fold = r.Width * 0.28f;
+                var left = r.Left + r.Width * 0.12f;
+                var right = r.Right - r.Width * 0.12f;
+                using var page = new GraphicsPath();
+                page.AddLines(new[]
+                {
+                    new PointF(left, r.Top), new PointF(right - fold, r.Top), new PointF(right, r.Top + fold),
+                    new PointF(right, r.Bottom), new PointF(left, r.Bottom)
+                });
+                page.CloseFigure();
+                g.DrawPath(pen, page);
+                for (var i = 0; i < 3; i++)
+                {
+                    var y = r.Top + r.Height * (0.45f + i * 0.17f);
+                    g.DrawLine(pen, left + r.Width * 0.14f, y, right - r.Width * (i == 2 ? 0.3f : 0.14f), y);
+                }
+                break;
+            }
+
             case IconKind.Person:
             {
                 var headD = r.Width * 0.42f;
@@ -267,26 +468,32 @@ public static class Icons
             g.DrawLine(pen, r.Left, r.Bottom, r.Right, r.Top);
     }
 
-    private static void DrawGear(Graphics g, Rectangle r, Color color)
+    // Outlined cog: 8 square teeth around a ring, with a round hole (stroke style, like the other nav icons).
+    private static void DrawGear(Graphics g, Rectangle r, Color color, Color cutout)
     {
-        using var brush = new SolidBrush(color);
         var cx = r.Left + r.Width / 2f;
         var cy = r.Top + r.Height / 2f;
-        var outerR = r.Width / 2f;
-        var innerR = outerR * 0.62f;
-        var toothR = outerR * 0.15f;
+        var outer = r.Width / 2f;
+        var body = outer * 0.74f;
+        const int teeth = 8;
+        var toothHalf = (float)(Math.PI / teeth) * 0.42f;
 
-        for (var i = 0; i < 8; i++)
+        using var path = new GraphicsPath();
+        var points = new List<PointF>();
+        for (var i = 0; i < teeth; i++)
         {
-            var angle = Math.PI * 2 * i / 8;
-            var x = cx + (float)(Math.Cos(angle) * outerR * 0.82f);
-            var y = cy + (float)(Math.Sin(angle) * outerR * 0.82f);
-            g.FillEllipse(brush, x - toothR, y - toothR, toothR * 2, toothR * 2);
+            var a = Math.PI * 2 * i / teeth - Math.PI / 2;
+            PointF At(double angle, float radius) => new(cx + (float)(Math.Cos(angle) * radius), cy + (float)(Math.Sin(angle) * radius));
+            points.Add(At(a - toothHalf * 1.25, body));
+            points.Add(At(a - toothHalf, outer));
+            points.Add(At(a + toothHalf, outer));
+            points.Add(At(a + toothHalf * 1.25, body));
         }
+        path.AddPolygon(points.ToArray());
 
-        g.FillEllipse(brush, cx - innerR, cy - innerR, innerR * 2, innerR * 2);
-        using var holeBrush = new SolidBrush(BackgroundHintFor(color));
-        var holeR = innerR * 0.4f;
-        g.FillEllipse(holeBrush, cx - holeR, cy - holeR, holeR * 2, holeR * 2);
+        using var pen = new Pen(color, Math.Max(1.4f, r.Width / 11f)) { LineJoin = LineJoin.Round };
+        g.DrawPath(pen, path);
+        var hole = outer * 0.3f;
+        g.DrawEllipse(pen, cx - hole, cy - hole, hole * 2, hole * 2);
     }
 }

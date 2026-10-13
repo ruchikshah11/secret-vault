@@ -18,17 +18,25 @@ public class CustomFieldRow : Panel
         (CustomFieldType.MultiLineText, "Multi-line Text"),
     };
 
-    private const int SingleLineHeight = 64;
-    private const int MultiLineHeight = 88;
+    private const int RowHeight = 34;
+    private const int RowGap = 8;
+    private const int SingleLineHeight = RowHeight * 2 + RowGap;
+    private const int MultiLineHeight = RowHeight + RowGap + 72;
+    private const int Indent = 28;
 
     private readonly ComboBox _typeCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList };
-    private readonly IconButton _dragHandle = new(IconKind.DragHandle, 24) { Circular = false, Enabled = false };
+    private readonly IconButton _dragHandle = new(IconKind.DragHandle, 24) { Circular = false, Cursor = Cursors.SizeAll };
     private readonly TextBox _labelBox = new() { PlaceholderText = "Field label" };
+    private readonly RoundedField _labelField;
     private readonly IconButton _removeButton = new(IconKind.Trash, 26) { Circular = false, IconColor = AppTheme.Danger };
     private readonly Panel _valueHost = new();
 
     private TextBox? _textValueBox;
+    private RoundedField? _textValueField;
     private DateTimePicker? _dateValueBox;
+
+    // Grip used by the parent form to drag-reorder rows.
+    public Control DragHandle => _dragHandle;
 
     public event EventHandler? RemoveRequested;
     public event EventHandler? SizeAdjusted;
@@ -36,18 +44,19 @@ public class CustomFieldRow : Panel
     public CustomFieldRow(string label, string value, CustomFieldType type)
     {
         Height = SingleLineHeight;
-        Margin = new Padding(0, 0, 0, 8);
+        Margin = new Padding(0, 0, 0, 14);
+        _labelField = new RoundedField(_labelBox, RowHeight);
 
         _typeCombo.Items.AddRange(TypeOptions.Select(t => t.Label).Cast<object>().ToArray());
         _typeCombo.SelectedIndexChanged += (_, _) => RebuildValueControl();
         _removeButton.Click += (_, _) => RemoveRequested?.Invoke(this, EventArgs.Empty);
 
         _labelBox.Text = label;
-        _valueHost.Location = new Point(28, 30);
-        _dragHandle.Location = new Point(0, 34);
+        _valueHost.Location = new Point(Indent, RowHeight + RowGap);
+        _dragHandle.Location = new Point(0, (RowHeight - _dragHandle.Height) / 2);
 
         Controls.Add(_dragHandle);
-        Controls.Add(_labelBox);
+        Controls.Add(_labelField);
         Controls.Add(_typeCombo);
         Controls.Add(_removeButton);
         Controls.Add(_valueHost);
@@ -62,15 +71,15 @@ public class CustomFieldRow : Panel
     private void LayoutRow()
     {
         var w = Width;
-        _removeButton.Location = new Point(w - _removeButton.Width, 0);
-        _typeCombo.Size = new Size(120, 26);
-        _typeCombo.Location = new Point(w - _removeButton.Width - 8 - _typeCombo.Width, 0);
-        _labelBox.Location = new Point(28, 2);
-        _labelBox.Size = new Size(_typeCombo.Left - 8 - 28, 24);
-        _valueHost.Width = w - 28;
-        _valueHost.Height = Height - 34;
+        _removeButton.Location = new Point(w - _removeButton.Width, (RowHeight - _removeButton.Height) / 2);
+        _typeCombo.Width = 140;
+        _typeCombo.Location = new Point(_removeButton.Left - 6 - _typeCombo.Width, (RowHeight - _typeCombo.Height) / 2);
+        _labelField.Location = new Point(Indent, 0);
+        _labelField.Width = _typeCombo.Left - 8 - Indent;
+        _valueHost.Width = w - Indent - _removeButton.Width - 6;
+        _valueHost.Height = Height - RowHeight - RowGap;
 
-        if (_textValueBox is not null) _textValueBox.Size = _valueHost.Size;
+        if (_textValueField is not null) _textValueField.Size = _valueHost.Size;
         if (_dateValueBox is not null) _dateValueBox.Width = _valueHost.Width;
     }
 
@@ -86,6 +95,7 @@ public class CustomFieldRow : Panel
         if (Type == CustomFieldType.Date)
         {
             _textValueBox = null;
+            _textValueField = null;
             _dateValueBox = new DateTimePicker { Width = _valueHost.Width, Format = DateTimePickerFormat.Short };
             if (DateTime.TryParse(current, out var parsed))
                 _dateValueBox.Value = parsed;
@@ -100,9 +110,10 @@ public class CustomFieldRow : Panel
                 Text = current,
                 Multiline = isMultiLine,
                 UseSystemPasswordChar = Type is CustomFieldType.Password or CustomFieldType.PinCode,
-                BorderStyle = BorderStyle.FixedSingle
+                PlaceholderText = "Value"
             };
-            _valueHost.Controls.Add(_textValueBox);
+            _textValueField = new RoundedField(_textValueBox, _valueHost.Height) { Width = _valueHost.Width };
+            _valueHost.Controls.Add(_textValueField);
         }
 
         AppTheme.Apply(_valueHost);

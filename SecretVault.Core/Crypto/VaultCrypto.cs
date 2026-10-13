@@ -12,14 +12,25 @@ public static class VaultCrypto
 
     public static byte[] GenerateSalt() => RandomNumberGenerator.GetBytes(SaltSize);
 
-    public static byte[] DeriveKey(string password, byte[] salt)
+    // Argon2id settings. The output depends on every one of them, so they are stored in the vault file (v2)
+    // and must be reproduced exactly to open it — including parallelism, which must not follow the CPU count.
+    public sealed record KdfParams(int Parallelism, int MemoryKb, int Iterations)
+    {
+        public static readonly KdfParams Default = new(4, 65536, 4); // 64 MB, 4 passes, 4 lanes
+    }
+
+    // Original (v1) behaviour: parallelism followed this machine's processor count. Only used to open v1 files.
+    public static byte[] DeriveKey(string password, byte[] salt) =>
+        DeriveKey(password, salt, new KdfParams(Environment.ProcessorCount, 65536, 4));
+
+    public static byte[] DeriveKey(string password, byte[] salt, KdfParams kdf)
     {
         using var argon2 = new Argon2id(System.Text.Encoding.UTF8.GetBytes(password))
         {
             Salt = salt,
-            DegreeOfParallelism = Environment.ProcessorCount,
-            MemorySize = 65536, // 64 MB
-            Iterations = 4
+            DegreeOfParallelism = kdf.Parallelism,
+            MemorySize = kdf.MemoryKb,
+            Iterations = kdf.Iterations
         };
         return argon2.GetBytes(KeySize);
     }

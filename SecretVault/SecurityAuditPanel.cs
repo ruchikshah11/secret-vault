@@ -8,132 +8,213 @@ public class SecurityAuditPanel : Panel
 {
     private enum ListFilter { All, Weak, Reused }
 
+    private const int Pad = 28;
+    private const int Gap = 16;
+    private const int MaxWidth = 1040;
+
     private readonly VaultData _data;
-    private readonly string _masterPassword;
+    private readonly Func<string> _masterPassword;
     private readonly Action _viewAllRecords;
 
     private bool _showingList;
     private ListFilter _filter = ListFilter.All;
     private bool _sortByStrength = true;
+    private int _builtWidth = -1;
 
-    private readonly ListBox _recordListBox = new();
+    private readonly NavListView _recordListBox = new() { ShowScrollbar = true };
+    private HashSet<VaultEntry> _reused = new();
+    private readonly Font _rowTitleFont = new("Segoe UI Semibold", 10f);
+    private readonly Font _rowSubFont = new("Segoe UI", 9f);
+    private readonly Font _chipFont = new("Segoe UI Semibold", 8.25f);
 
-    public SecurityAuditPanel(VaultData data, string masterPassword, Action viewAllRecords)
+    public SecurityAuditPanel(VaultData data, Func<string> masterPassword, Action viewAllRecords)
     {
         _data = data;
         _masterPassword = masterPassword;
         _viewAllRecords = viewAllRecords;
         Tag = AppTheme.NoTheme;
         AutoScroll = true;
-        Padding = new Padding(32);
+
+        _recordListBox.ItemHeight = 70;
+        _recordListBox.Tag = AppTheme.NoTheme;
+        _recordListBox.DrawItem += RecordListBox_DrawItem;
+
+        Resize += (_, _) =>
+        {
+            if (Visible && ClientSize.Width != _builtWidth) RefreshData();
+        };
     }
 
     public void RefreshData()
     {
-        Controls.Clear();
-        BackColor = AppTheme.Shell;
+        SuspendLayout();
+        _recordListBox.Parent?.Controls.Remove(_recordListBox); // reused; keep it out of the disposal below
+        foreach (Control c in Controls.Cast<Control>().ToList()) c.Dispose();
+        AutoScrollPosition = Point.Empty;
+        BackColor = AppTheme.Canvas;
+        _builtWidth = ClientSize.Width;
 
         if (_showingList)
             BuildDrillDownList();
         else
             BuildDashboard();
 
-        AppTheme.Apply(this);
+        ResumeLayout();
     }
+
+    private int ContentWidth => Math.Clamp(ClientSize.Width - Pad * 2, 560, MaxWidth);
+
+    // ---------- Dashboard ----------
 
     private void BuildDashboard()
     {
-        var entries = _data.Entries.Where(e => e.DeletedAt is null).ToList();
-        var total = Math.Max(1, entries.Count);
+        // Score formula lives in SecretVault.Core (SecurityReport) so the Android app shows the same numbers.
+        var report = SecurityReport.Create(_data, _masterPassword());
+        var entries = report.Entries;
+        var weakCount = report.Weak.Count;
+        var reusedCount = report.Reused.Count;
+        var has2Fa = report.Has2Fa;
+        var masterStrong = report.MasterStrong;
+        var score = report.Score;
+        var scoreLabel = report.ScoreLabel;
+        var scoreColor = AppTheme.StrengthColor(score switch { >= 80 => StrengthLevel.Strong, >= 60 => StrengthLevel.Fair, _ => StrengthLevel.Weak });
 
-        var weakCount = entries.Count(e => PasswordStrength.Evaluate(e.Secret) <= StrengthLevel.Fair);
-        var secretGroups = entries.Where(e => !string.IsNullOrEmpty(e.Secret)).GroupBy(e => e.Secret).ToList();
-        var reusedCount = secretGroups.Where(g => g.Count() > 1).Sum(g => g.Count());
-        var has2Fa = entries.Any(e => e.TotpSecret is not null);
-        var masterStrong = PasswordStrength.Evaluate(_masterPassword) >= StrengthLevel.Strong;
+        var width = ContentWidth;
+        var half = (width - Gap) / 2;
+        var y = Pad - 4;
 
-        var weakPenalty = (double)weakCount / total * 40;
-        var reusedPenalty = (double)reusedCount / total * 30;
-        var baseScore = Math.Clamp(100 - weakPenalty - reusedPenalty, 0, 70);
-        var bonus = (masterStrong ? 15 : 0) + (has2Fa ? 15 : 0);
-        var score = (int)Math.Clamp(baseScore + bonus, 0, 100);
+        y = AddPageHeader("Security Audit", "See how well your vault is protected and fix weak spots.", y);
 
-        var (scoreLabel, scoreColor) = score switch
-        {
-            >= 80 => ("Strong", AppTheme.StrengthColor(StrengthLevel.Strong)),
-            >= 60 => ("Fair", AppTheme.StrengthColor(StrengthLevel.Fair)),
-            _ => ("Weak", AppTheme.StrengthColor(StrengthLevel.Weak))
-        };
-
-        var title = new Label
-        {
-            Text = "Security Audit",
-            Font = new Font("Segoe UI", 16, FontStyle.Bold),
-            ForeColor = AppTheme.Text,
-            AutoSize = true,
-            Location = new Point(0, 0)
-        };
-        Controls.Add(title);
-
-        var scoreCard = MakeCard(new Point(0, 44), new Size(920, 220));
-        var gauge = new Panel { Size = new Size(160, 160), Location = new Point(24, 30), Tag = AppTheme.NoTheme };
+        // Score card
+        var scoreCard = Card(new Rectangle(Pad, y, width, 200));
+        var gauge = new Panel { Size = new Size(150, 150), Location = new Point(28, 25), Tag = AppTheme.NoTheme, BackColor = AppTheme.CardBg };
+        var scoreFont = new Font("Segoe UI", 24f, FontStyle.Bold);
         gauge.Paint += (_, e) =>
         {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            var rect = new Rectangle(10, 10, 138, 138);
-            using var trackPen = new Pen(AppTheme.Border, 14);
-            e.Graphics.DrawArc(trackPen, rect, 0, 360);
-            using var scorePen = new Pen(scoreColor, 14) { StartCap = LineCap.Round, EndCap = LineCap.Round };
-            e.Graphics.DrawArc(scorePen, rect, -90, 360f * score / 100f);
-
-            TextRenderer.DrawText(e.Graphics, $"{score}%", new Font("Segoe UI", 22, FontStyle.Bold),
-                new Rectangle(0, 48, 160, 40), AppTheme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix);
-            TextRenderer.DrawText(e.Graphics, scoreLabel, new Font("Segoe UI", 10),
-                new Rectangle(0, 92, 160, 24), AppTheme.SubText, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix);
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(AppTheme.CardBg);
+            var rect = new Rectangle(9, 9, 131, 131);
+            using var trackPen = new Pen(AppTheme.Border, 12);
+            g.DrawArc(trackPen, rect, 0, 360);
+            using var scorePen = new Pen(scoreColor, 12) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            if (score > 0) g.DrawArc(scorePen, rect, -90, 360f * score / 100f);
+            TextRenderer.DrawText(g, $"{score}%", scoreFont, new Rectangle(0, 46, 150, 44), AppTheme.Text, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix);
+            TextRenderer.DrawText(g, "score", _rowSubFont, new Rectangle(0, 88, 150, 20), AppTheme.SubText, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPrefix);
         };
         scoreCard.Controls.Add(gauge);
 
-        var scoreTitle = new Label
+        var textLeft = 206;
+        scoreCard.Controls.Add(new Label { Text = "Overall security score", Font = new Font("Segoe UI", 13f, FontStyle.Bold), ForeColor = AppTheme.Text, AutoSize = true, Location = new Point(textLeft, 34), Tag = AppTheme.NoTheme });
+        var verdict = new Panel { Location = new Point(textLeft, 66), Size = new Size(200, 24), Tag = AppTheme.NoTheme, BackColor = AppTheme.CardBg };
+        verdict.Paint += (_, e) =>
         {
-            Text = "Overall Security Score",
-            Font = new Font("Segoe UI", 12, FontStyle.Bold),
-            ForeColor = AppTheme.Text,
-            AutoSize = true,
-            Location = new Point(210, 30)
+            e.Graphics.Clear(AppTheme.CardBg);
+            UiKit.DrawChip(e.Graphics, Point.Empty, scoreLabel, _chipFont, scoreColor, UiKit.Tint(scoreColor, AppTheme.CardBg), IconKind.Shield);
         };
-        var scoreDesc = new Label
+        scoreCard.Controls.Add(verdict);
+        scoreCard.Controls.Add(new Label
         {
-            Text = "Your Security Score summarizes the strength of your SecretVault. Review the strength of your passwords and take action to minimize risks and vulnerabilities.",
+            Text = "Your score combines password strength, password reuse, your master password and two-factor usage. Fix the items below to raise it.",
             ForeColor = AppTheme.SubText,
-            AutoSize = false,
-            Size = new Size(650, 60),
-            Location = new Point(210, 60)
+            Location = new Point(textLeft, 100),
+            Size = new Size(width - textLeft - 28, 44),
+            Tag = AppTheme.NoTheme
+        });
+        var viewAll = new PillButton("View all records", primary: false, new Size(160, 36)) { LeadingIcon = IconKind.ChevronRight, Location = new Point(textLeft, 146) };
+        viewAll.Click += (_, _) => ShowList(ListFilter.All);
+        scoreCard.Controls.Add(viewAll);
+        y = scoreCard.Bottom + Gap;
+
+        // Status cards
+        StatusCard(new Rectangle(Pad, y, half, 76), masterStrong, "Master password",
+            masterStrong ? "Your master password is strong." : "Use a longer, more random master password.");
+        StatusCard(new Rectangle(Pad + half + Gap, y, width - half - Gap, 76), has2Fa, "Two-factor codes",
+            has2Fa ? "At least one record has a TOTP code." : "No records have a TOTP code yet.");
+        y += 76 + Gap;
+
+        // Issue cards
+        IssueCard(new Rectangle(Pad, y, half, 176), IconKind.Key, weakCount, "Weak passwords",
+            "\"Weak\" and \"Fair\" passwords are easy to guess. Change them on the affected accounts.",
+            "Review weak", ListFilter.Weak);
+        IssueCard(new Rectangle(Pad + half + Gap, y, width - half - Gap, 176), IconKind.Duplicate, reusedCount, "Reused passwords",
+            "If one account with a reused password is breached, the others are at risk too.",
+            "Review reused", ListFilter.Reused);
+        y += 176;
+
+        Controls.Add(new Panel { Location = new Point(Pad, y), Size = new Size(1, Pad), Tag = AppTheme.NoTheme, BackColor = AppTheme.Canvas });
+    }
+
+    private int AddPageHeader(string title, string subtitle, int y, int x = Pad)
+    {
+        Controls.Add(new Label { Text = title, Font = new Font("Segoe UI", 17f, FontStyle.Bold), ForeColor = AppTheme.Text, AutoSize = true, Location = new Point(x - 3, y), Tag = AppTheme.NoTheme });
+        Controls.Add(new Label { Text = subtitle, ForeColor = AppTheme.SubText, AutoSize = true, Location = new Point(x - 1, y + 36), Tag = AppTheme.NoTheme });
+        return y + 74;
+    }
+
+    private Panel Card(Rectangle bounds)
+    {
+        var card = UiKit.NewCard();
+        card.Bounds = bounds;
+        Controls.Add(card);
+        return card;
+    }
+
+    private Panel IconBadge(IconKind icon, Color color, Point location, int size = 40)
+    {
+        var badge = new Panel { Size = new Size(size, size), Location = location, Tag = AppTheme.NoTheme, BackColor = AppTheme.CardBg };
+        badge.Paint += (_, e) =>
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(AppTheme.CardBg);
+            var tint = UiKit.Tint(color, AppTheme.CardBg);
+            using var bg = new SolidBrush(tint);
+            using var path = RoundedField.RoundRect(new RectangleF(0, 0, size - 1, size - 1), size / 4f);
+            g.FillPath(bg, path);
+            var inset = size / 4;
+            Icons.Draw(g, icon, new Rectangle(inset, inset, size - inset * 2, size - inset * 2), color, 1.7f, tint);
         };
-        var viewAllLink = MakeLinkButton("View All records", new Point(790, 170));
-        viewAllLink.Click += (_, _) => ShowList(ListFilter.All);
-        scoreCard.Controls.Add(scoreTitle);
-        scoreCard.Controls.Add(scoreDesc);
-        scoreCard.Controls.Add(viewAllLink);
-        Controls.Add(scoreCard);
+        return badge;
+    }
 
-        var row1 = new Point(0, 280);
-        var masterCard = MakeCard(row1, new Size(450, 60));
-        AddStatusRow(masterCard, masterStrong, "Strong Master Password", masterStrong ? "Your master password is strong." : "Consider using a longer, more random master password.");
-        var totpCard = MakeCard(new Point(470, 280), new Size(450, 60));
-        AddStatusRow(totpCard, has2Fa, "Active 2FA Method", has2Fa ? "At least one entry has TOTP enabled." : "No entries have a TOTP code configured.");
-        Controls.Add(masterCard);
-        Controls.Add(totpCard);
+    private void StatusCard(Rectangle bounds, bool ok, string title, string description)
+    {
+        var color = ok ? AppTheme.StrengthColor(StrengthLevel.Strong) : AppTheme.StrengthColor(StrengthLevel.Weak);
+        var card = Card(bounds);
+        card.Controls.Add(IconBadge(ok ? IconKind.Shield : IconKind.Key, color, new Point(20, 18)));
+        card.Controls.Add(new Label { Text = title, Font = new Font("Segoe UI Semibold", 10.5f), ForeColor = AppTheme.Text, AutoSize = true, Location = new Point(74, 15), Tag = AppTheme.NoTheme });
+        card.Controls.Add(new Label { Text = description, ForeColor = AppTheme.SubText, AutoEllipsis = true, Location = new Point(74, 40), Size = new Size(bounds.Width - 74 - 100, 20), Tag = AppTheme.NoTheme });
 
-        var weakCard = MakeCard(new Point(0, 356), new Size(450, 160));
-        BuildCountCard(weakCard, IconKind.Key, weakCount, "Weak Passwords",
-            "\"Weak\" and \"Fair\" passwords are easy to guess. Change passwords on the affected accounts as soon as possible.",
-            "View Weak Passwords", ListFilter.Weak);
-        var reusedCard = MakeCard(new Point(470, 356), new Size(450, 160));
-        BuildCountCard(reusedCard, IconKind.Duplicate, reusedCount, "Reused Passwords",
-            "If one account with a reused password is breached, all the other accounts become at risk as well.",
-            "View Reused Passwords", ListFilter.Reused);
-        Controls.Add(weakCard);
-        Controls.Add(reusedCard);
+        var status = new Panel { Size = new Size(90, 24), Location = new Point(bounds.Width - 20 - 90, 26), Tag = AppTheme.NoTheme, BackColor = AppTheme.CardBg };
+        status.Paint += (_, e) =>
+        {
+            e.Graphics.Clear(AppTheme.CardBg);
+            var text = ok ? "Good" : "Improve";
+            var w = TextRenderer.MeasureText(text, _chipFont, Size.Empty, TextFormatFlags.NoPadding).Width + 20;
+            UiKit.DrawChip(e.Graphics, new Point(90 - w, 0), text, _chipFont, color, UiKit.Tint(color, AppTheme.CardBg));
+        };
+        card.Controls.Add(status);
+    }
+
+    private void IssueCard(Rectangle bounds, IconKind icon, int count, string title, string description, string linkText, ListFilter filter)
+    {
+        var color = count > 0 ? AppTheme.Danger : AppTheme.StrengthColor(StrengthLevel.Strong);
+        var card = Card(bounds);
+        card.Controls.Add(IconBadge(icon, color, new Point(22, 22), 44));
+        card.Controls.Add(new Label { Text = count.ToString(), Font = new Font("Segoe UI", 20f, FontStyle.Bold), ForeColor = count > 0 ? color : AppTheme.Text, AutoSize = true, Location = new Point(78, 14), Tag = AppTheme.NoTheme });
+        card.Controls.Add(new Label { Text = title, Font = new Font("Segoe UI Semibold", 10f), ForeColor = AppTheme.SubText, AutoSize = true, Location = new Point(81, 48), Tag = AppTheme.NoTheme });
+        card.Controls.Add(new Label { Text = description, ForeColor = AppTheme.SubText, Location = new Point(22, 82), Size = new Size(bounds.Width - 44, 40), Tag = AppTheme.NoTheme });
+
+        var link = new PillButton(count > 0 ? linkText : "All good", primary: false, new Size(150, 34))
+        {
+            LeadingIcon = count > 0 ? IconKind.ChevronRight : IconKind.Shield,
+            AccentColor = count > 0 ? AppTheme.Accent : color,
+            Location = new Point(22, bounds.Height - 34 - 18),
+            Enabled = count > 0
+        };
+        link.Click += (_, _) => ShowList(filter);
+        card.Controls.Add(link);
     }
 
     private void ShowList(ListFilter filter)
@@ -147,72 +228,70 @@ public class SecurityAuditPanel : Panel
 
     private void BuildDrillDownList()
     {
-        var backBtn = new IconButton(IconKind.Back, 30) { Location = new Point(0, 0), IconColor = AppTheme.SubText };
+        var width = ContentWidth;
+        var y = Pad - 4;
+
+        var backBtn = new IconButton(IconKind.Back, 36) { Location = new Point(Pad - 6, y + 2), IconColor = AppTheme.SubText };
+        new ToolTip().SetToolTip(backBtn, "Back to overview");
         backBtn.Click += (_, _) => { _showingList = false; RefreshData(); };
-        var title = new Label
-        {
-            Text = "Security Audit",
-            Font = new Font("Segoe UI", 16, FontStyle.Bold),
-            ForeColor = AppTheme.Text,
-            AutoSize = true,
-            Location = new Point(38, 4)
-        };
         Controls.Add(backBtn);
-        Controls.Add(title);
+        var title = _filter switch { ListFilter.Weak => "Weak passwords", ListFilter.Reused => "Reused passwords", _ => "All records" };
+        y = AddPageHeader(title, "Records are ordered so the riskiest ones come first.", y, Pad + 40);
 
-        var sortLabel = new Label { Text = "Sort by:", ForeColor = AppTheme.SubText, AutoSize = true, Location = new Point(0, 48) };
-        var sortCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(60, 44), Width = 150 };
-        sortCombo.Items.AddRange(new object[] { "Password Strength", "Name" });
-        sortCombo.SelectedIndex = _sortByStrength ? 0 : 1;
-        sortCombo.SelectedIndexChanged += (_, _) => { _sortByStrength = sortCombo.SelectedIndex == 0; RefreshData(); };
-
-        var showLabel = new Label { Text = "Show:", ForeColor = AppTheme.SubText, AutoSize = true, Location = new Point(230, 48) };
-        var showCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(280, 44), Width = 150 };
-        showCombo.Items.AddRange(new object[] { "All Records", "Weak Passwords", "Reused Passwords" });
-        showCombo.SelectedIndex = _filter switch { ListFilter.Weak => 1, ListFilter.Reused => 2, _ => 0 };
-        showCombo.SelectedIndexChanged += (_, _) =>
+        // Filter pills + sort toggle
+        var x = Pad;
+        foreach (var (text, filter) in new[] { ("All", ListFilter.All), ("Weak", ListFilter.Weak), ("Reused", ListFilter.Reused) })
         {
-            _filter = showCombo.SelectedIndex switch { 1 => ListFilter.Weak, 2 => ListFilter.Reused, _ => ListFilter.All };
-            RefreshData();
+            var pill = new PillButton(text, primary: false, new Size(84, 34)) { Selected = _filter == filter, Location = new Point(x, y) };
+            pill.Click += (_, _) => { _filter = filter; RefreshData(); };
+            Controls.Add(pill);
+            x += 92;
+        }
+        var sortBtn = new PillButton(_sortByStrength ? "Sort: Strength" : "Sort: Name", primary: false, new Size(150, 34))
+        {
+            Dropdown = true,
+            Location = new Point(Pad + width - 150, y)
         };
+        sortBtn.Click += (_, _) => { _sortByStrength = !_sortByStrength; RefreshData(); };
+        Controls.Add(sortBtn);
+        y += 34 + Gap;
 
-        Controls.Add(sortLabel);
-        Controls.Add(sortCombo);
-        Controls.Add(showLabel);
-        Controls.Add(showCombo);
-
-        var divider = new Panel { Location = new Point(0, 82), Size = new Size(1000, 1), Tag = AppTheme.NoTheme, BackColor = AppTheme.Border };
-        Controls.Add(divider);
-
-        var entries = _data.Entries.Where(e => e.DeletedAt is null).ToList();
-        var secretGroups = entries.Where(e => !string.IsNullOrEmpty(e.Secret)).GroupBy(e => e.Secret)
-            .Where(g => g.Count() > 1).SelectMany(g => g).ToHashSet();
+        var report = SecurityReport.Create(_data, _masterPassword());
+        var reused = report.Reused;
 
         IEnumerable<VaultEntry> filtered = _filter switch
         {
-            ListFilter.Weak => entries.Where(e => PasswordStrength.Evaluate(e.Secret) <= StrengthLevel.Fair),
-            ListFilter.Reused => entries.Where(e => secretGroups.Contains(e)),
-            _ => entries
+            ListFilter.Weak => report.Weak,
+            ListFilter.Reused => report.Entries.Where(reused.Contains),
+            _ => report.Entries
         };
 
         var list = _sortByStrength
-            ? filtered.OrderBy(e => PasswordStrength.Evaluate(e.Secret)).ToList()
+            ? filtered.OrderBy(e => PasswordStrength.Evaluate(e.Secret)).ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList()
             : filtered.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList();
 
+        if (list.Count == 0)
+        {
+            Controls.Add(new Label
+            {
+                Text = _filter == ListFilter.All ? "No records yet." : "Nothing to fix here. 🎉",
+                ForeColor = AppTheme.SubText,
+                Font = new Font("Segoe UI", 10.5f),
+                AutoSize = true,
+                Location = new Point(Pad, y + 12),
+                Tag = AppTheme.NoTheme
+            });
+            return;
+        }
+
         _recordListBox.Items.Clear();
-        _recordListBox.Location = new Point(0, 92);
-        _recordListBox.Size = new Size(1000, 560);
-        _recordListBox.BorderStyle = BorderStyle.None;
-        _recordListBox.DrawMode = DrawMode.OwnerDrawFixed;
-        _recordListBox.ItemHeight = 56;
-        _recordListBox.IntegralHeight = false;
-        _recordListBox.Tag = AppTheme.NoTheme;
-        _recordListBox.BackColor = AppTheme.Shell;
-        _recordListBox.DrawItem -= RecordListBox_DrawItem;
-        _recordListBox.DrawItem += RecordListBox_DrawItem;
+        _reused = reused;
+        _recordListBox.BackColor = AppTheme.Canvas;
+        _recordListBox.Location = new Point(Pad, y);
+        _recordListBox.Size = new Size(width, Math.Max(200, ClientSize.Height - y - Pad));
+        _recordListBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Bottom;
         foreach (var entry in list)
             _recordListBox.Items.Add(entry);
-
         Controls.Add(_recordListBox);
     }
 
@@ -223,150 +302,39 @@ public class SecurityAuditPanel : Panel
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
 
-        using (var bg = new SolidBrush(AppTheme.Shell))
+        using (var bg = new SolidBrush(AppTheme.Canvas))
             g.FillRectangle(bg, e.Bounds);
+        var tile = new RectangleF(e.Bounds.Left, e.Bounds.Top + 4, e.Bounds.Width - 1, e.Bounds.Height - 8);
+        using (var path = RoundedField.RoundRect(tile, 12))
+        {
+            using var fill = new SolidBrush(AppTheme.CardBg);
+            using var pen = new Pen(AppTheme.Border);
+            g.FillPath(fill, path);
+            g.DrawPath(pen, path);
+        }
 
-        var avatarRect = new Rectangle(e.Bounds.Left + 8, e.Bounds.Top + (e.Bounds.Height - 36) / 2, 36, 36);
-        using (var avatarBrush = new SolidBrush(AppTheme.Accent))
-            g.FillEllipse(avatarBrush, avatarRect);
-        var initial = entry.Name.Length > 0 ? entry.Name[..1].ToUpperInvariant() : "?";
-        TextRenderer.DrawText(g, initial, new Font("Segoe UI", 12, FontStyle.Bold), avatarRect, Color.White,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+        var avatarRect = new Rectangle(e.Bounds.Left + 14, e.Bounds.Top + (e.Bounds.Height - 40) / 2, 40, 40);
+        UiKit.DrawAvatar(g, avatarRect, entry.Name);
+
+        // Right side chips: strength (always) and "Reused" when applicable.
+        var level = PasswordStrength.Evaluate(entry.Secret);
+        var color = AppTheme.StrengthColor(level);
+        var chipY = e.Bounds.Top + (e.Bounds.Height - 22) / 2;
+        var strengthText = string.IsNullOrEmpty(entry.Secret) ? "No password" : UiKit.StrengthText(level);
+        var right = e.Bounds.Right - 16;
+        right -= TextRenderer.MeasureText(g, strengthText, _chipFont, Size.Empty, TextFormatFlags.NoPadding).Width + 20;
+        UiKit.DrawChip(g, new Point(right, chipY), strengthText, _chipFont, color, UiKit.Tint(color, AppTheme.CardBg));
+        if (_reused.Contains(entry))
+        {
+            right -= 8 + TextRenderer.MeasureText(g, "Reused", _chipFont, Size.Empty, TextFormatFlags.NoPadding).Width + 20 + 16;
+            UiKit.DrawChip(g, new Point(right, chipY), "Reused", _chipFont, AppTheme.Danger, UiKit.Tint(AppTheme.Danger, AppTheme.CardBg), IconKind.Duplicate);
+        }
 
         var textLeft = avatarRect.Right + 14;
-        var nameRect = new Rectangle(textLeft, e.Bounds.Top + 8, e.Bounds.Width - textLeft - 140, 22);
-        var subRect = new Rectangle(textLeft, e.Bounds.Top + 30, e.Bounds.Width - textLeft - 140, 20);
-        TextRenderer.DrawText(g, entry.Name, new Font(_recordListBox.Font, FontStyle.Bold), nameRect, AppTheme.Text,
+        TextRenderer.DrawText(g, entry.Name, _rowTitleFont, new Rectangle(textLeft, e.Bounds.Top + 14, right - textLeft - 10, 22), AppTheme.Text,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        TextRenderer.DrawText(g, entry.Username, _recordListBox.Font, subRect, AppTheme.SubText,
+        TextRenderer.DrawText(g, string.IsNullOrEmpty(entry.Username) ? entry.Folder : $"{entry.Username}  ·  {entry.Folder}", _rowSubFont,
+            new Rectangle(textLeft, e.Bounds.Top + 36, right - textLeft - 10, 20), AppTheme.SubText,
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-
-        var level = PasswordStrength.Evaluate(entry.Secret);
-        var badgeColor = AppTheme.StrengthColor(level);
-        var badgeText = level.ToString();
-        var badgeIconRect = new Rectangle(e.Bounds.Right - 30, e.Bounds.Top + (e.Bounds.Height - 24) / 2, 24, 24);
-        using (var badgeBg = new SolidBrush(Color.FromArgb(40, badgeColor)))
-            g.FillEllipse(badgeBg, badgeIconRect);
-        Icons.Draw(g, level <= StrengthLevel.Fair ? IconKind.Trash : IconKind.Shield, Rectangle.Inflate(badgeIconRect, -5, -5), badgeColor, 1.5f);
-
-        var badgeTextRect = new Rectangle(badgeIconRect.Left - 90, e.Bounds.Top, 84, e.Bounds.Height);
-        TextRenderer.DrawText(g, badgeText, _recordListBox.Font, badgeTextRect, badgeColor,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Right | TextFormatFlags.NoPrefix);
-
-        using var linePen = new Pen(AppTheme.Border);
-        g.DrawLine(linePen, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
-    }
-
-    private void BuildCountCard(Panel card, IconKind icon, int count, string title, string description, string linkText, ListFilter filter)
-    {
-        var iconBadge = new Panel { Size = new Size(36, 36), Location = new Point(20, 20), Tag = AppTheme.NoTheme };
-        iconBadge.Paint += (_, e) =>
-        {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using var bg = new SolidBrush(count > 0 ? Color.FromArgb(40, AppTheme.Danger) : Color.FromArgb(40, AppTheme.StrengthColor(StrengthLevel.Strong)));
-            e.Graphics.FillEllipse(bg, 0, 0, 35, 35);
-            Icons.Draw(e.Graphics, icon, new Rectangle(8, 8, 20, 20), count > 0 ? AppTheme.Danger : AppTheme.StrengthColor(StrengthLevel.Strong), 1.6f);
-        };
-        var countLabel = new Label
-        {
-            Text = count.ToString(),
-            Font = new Font("Segoe UI", 14, FontStyle.Bold),
-            ForeColor = AppTheme.Text,
-            AutoSize = true,
-            Location = new Point(66, 18)
-        };
-        var titleLabel = new Label
-        {
-            Text = title,
-            ForeColor = AppTheme.SubText,
-            AutoSize = true,
-            Location = new Point(66, 42)
-        };
-        var descLabel = new Label
-        {
-            Text = description,
-            ForeColor = AppTheme.SubText,
-            Size = new Size(400, 40),
-            Location = new Point(20, 68)
-        };
-        var link = MakeLinkButton(linkText, new Point(300, 120));
-        link.Click += (_, _) => ShowList(filter);
-
-        card.Controls.Add(iconBadge);
-        card.Controls.Add(countLabel);
-        card.Controls.Add(titleLabel);
-        card.Controls.Add(descLabel);
-        card.Controls.Add(link);
-    }
-
-    private void AddStatusRow(Panel card, bool ok, string title, string description)
-    {
-        var badgeColor = ok ? AppTheme.StrengthColor(StrengthLevel.Strong) : AppTheme.SubText;
-        var iconBadge = new Panel { Size = new Size(36, 36), Location = new Point(20, 12), Tag = AppTheme.NoTheme };
-        iconBadge.Paint += (_, e) =>
-        {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using var bg = new SolidBrush(Color.FromArgb(40, badgeColor));
-            e.Graphics.FillEllipse(bg, 0, 0, 35, 35);
-            Icons.Draw(e.Graphics, IconKind.Shield, new Rectangle(8, 8, 20, 20), badgeColor, 1.6f);
-        };
-        var titleLabel = new Label
-        {
-            Text = title,
-            Font = new Font("Segoe UI", 10, FontStyle.Bold),
-            ForeColor = AppTheme.Text,
-            AutoSize = true,
-            Location = new Point(66, 22)
-        };
-        card.Controls.Add(iconBadge);
-        card.Controls.Add(titleLabel);
-    }
-
-    private static Panel MakeCard(Point location, Size size)
-    {
-        var card = new Panel
-        {
-            Location = location,
-            Size = size,
-            Tag = AppTheme.RoleCard,
-            BackColor = AppTheme.CardBg
-        };
-        card.Paint += (_, e) =>
-        {
-            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using var pen = new Pen(AppTheme.Border, 1.2f);
-            using var path = RoundedRectPath(new Rectangle(0, 0, card.Width - 1, card.Height - 1), 10);
-            e.Graphics.DrawPath(pen, path);
-        };
-        return card;
-    }
-
-    private static GraphicsPath RoundedRectPath(Rectangle bounds, int radius)
-    {
-        var d = radius * 2;
-        var path = new GraphicsPath();
-        path.AddArc(bounds.X, bounds.Y, d, d, 180, 90);
-        path.AddArc(bounds.Right - d, bounds.Y, d, d, 270, 90);
-        path.AddArc(bounds.Right - d, bounds.Bottom - d, d, d, 0, 90);
-        path.AddArc(bounds.X, bounds.Bottom - d, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
-    }
-
-    private static Button MakeLinkButton(string text, Point location)
-    {
-        var btn = new Button
-        {
-            Text = text,
-            Location = location,
-            AutoSize = true,
-            FlatStyle = FlatStyle.Flat,
-            ForeColor = AppTheme.Accent,
-            BackColor = AppTheme.CardBg,
-            Tag = AppTheme.NoTheme,
-            Cursor = Cursors.Hand
-        };
-        btn.FlatAppearance.BorderSize = 0;
-        return btn;
     }
 }
